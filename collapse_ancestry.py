@@ -12,6 +12,7 @@ def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('--rfmix', help='path to RFMix Viterbi output, chr expected in filename', required=True)
   parser.add_argument('--snp_locations', help='path to snp_locations file required by RFMix, chr expected in filename', required=True)
+  parser.add_argument('--snp_positions', help='path to PLINK BIM file with physical positions of SNPs, chr expected in filename', required=True)
   parser.add_argument('--fbk', default=None)
   parser.add_argument('--fbk_threshold', type=float, default = 0.9)
   parser.add_argument('--ind', help='Individual ID, must match a line in --ind_info option', required=True)
@@ -20,10 +21,10 @@ def parse_args():
                     help='comma-separated list of population labels in the order of rfmix populations (1 first, 2 second, and so on). Used in bed files and karyogram labels')
   parser.add_argument('--chrX', help='include chrX?', default=False, action="store_true")
   parser.add_argument('--out', help='prefix to bed file, _A.bed and _B.bed will be appended', required=True)
-  
+
   args = parser.parse_args()
   return(args)
-  
+
 def grouper(n, iterable, fillvalue=None):
     "grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx"
     args = [iter(iterable)] * n
@@ -36,7 +37,7 @@ def check_gt_posterior(fbk_max, fbk_threshold, index, add, hap_anc, line, curren
       hap_anc = -9
       current_anc[add] = -9
   return (current_anc, hap_anc)
-  
+
 def find_haplotype_bounds(index, add, pop_order, hap,npop):
   for chr in chrs:
     print str(chr) + ' [' + datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + ']'
@@ -49,16 +50,22 @@ def find_haplotype_bounds(index, add, pop_order, hap,npop):
         fbk = open(fbk_file)
     snp_file = re.sub(r'chr[X0-9]+', 'chr' + str(chr), args.snp_locations)
     snp_locations = open(snp_file)
-    snp_map = open(snp_file.replace('snp_locations', 'map')) #map of physical position -> genetic position
-    
+    #snp_map = open(snp_file.replace('snp_locations', 'map')) #map of physical position -> genetic position
+    pos_file = re.sub(r'chr[X0-9]+', 'chr' + str(chr), args.snp_positions)
+    snp_positions = open(pos_file)
+
     last_anc_pos_cm = [None, None, 0]
-    
+
     counter = 0
+    #print(counter + "\n")
     for line in rfmix:
       counter += 1
+      print "counter = " + str(counter)
       myLine = line.strip().split()
-      my_pos = snp_locations.readline().strip()
-      my_map = snp_map.readline().strip().split()
+      my_pos = snp_positions.readline().strip().split()
+      my_map = snp_locations.readline().strip()
+      #my_pos = snp_locations.readline().strip()
+      #my_map = snp_map.readline().strip().split()
       if args.fbk is not None:
         fbk_line = fbk.readline().strip().split()
         fbk_line = map(float, fbk_line)
@@ -69,12 +76,17 @@ def find_haplotype_bounds(index, add, pop_order, hap,npop):
           myLine[index*2+add] = -9
       #fencepost for start of the chromosome
       if counter == 1:
-        last_anc_pos_cm = [myLine[2*index + add], my_map[0], my_pos]
-        post_anc_pos_cm = [myLine[2*index + add], my_map[0], my_pos]
+        #last_anc_pos_cm = [myLine[2*index + add], my_map[0], my_pos]
+        #post_anc_pos_cm = [myLine[2*index + add], my_map[0], my_pos]
+        last_anc_pos_cm = [myLine[2*index + add], my_map, my_pos[3]]
+        post_anc_pos_cm = [myLine[2*index + add], my_map, my_pos[3]]
+        print "last_anc_post_cm = " + str(last_anc_pos_cm) + ", post_anc_pos_cm = ", post_anc_pos_cm
         continue
-      
+
       #start regular iterations
-      current_anc_pos_cm = [myLine[2*index + add], my_map[0], my_pos]
+      #current_anc_pos_cm = [myLine[2*index + add], my_map[0], my_pos]
+      current_anc_pos_cm = [myLine[2*index + add], my_map, my_pos[3]]
+      print "current_anc_pos_cm = " + str(current_anc_pos_cm)
       if current_anc_pos_cm[0] == last_anc_pos_cm[0]:
         last_anc_pos_cm = current_anc_pos_cm
         continue
@@ -88,9 +100,9 @@ def find_haplotype_bounds(index, add, pop_order, hap,npop):
                     pop_order[int(last_anc_pos_cm[0])-1] + '\t' +
                     post_anc_pos_cm[2] + '\t' + last_anc_pos_cm[2] + '\n')
         post_anc_pos_cm = current_anc_pos_cm
-      
+
       last_anc_pos_cm = current_anc_pos_cm
-    
+
     #last iteration, still need to print
     if last_anc_pos_cm[0] == -9:
       hap.write(str(chr) + '\t' + post_anc_pos_cm[1] + '\t' + current_anc_pos_cm[1] +
@@ -101,16 +113,16 @@ def find_haplotype_bounds(index, add, pop_order, hap,npop):
                 post_anc_pos_cm[2] + '\t' + current_anc_pos_cm[2] + '\n')
 
 def main(current_ind, index, pop_order):
-    
+
   #open bed files (2 haplotypes per individual)
   hap_a = open(args.out + '_A.bed', 'w')
   hap_b = open(args.out + '_B.bed', 'w')
-  
-  find_haplotype_bounds(index, 0, pop_order, hap_a,npop)
+
+  find_haplotype_bounds(index, 0, pop_order, hap_a, npop)
   hap_a.close()
-  
-  find_haplotype_bounds(index, 1, pop_order, hap_b,npop)
-  hap_b.close()    
+
+  find_haplotype_bounds(index, 1, pop_order, hap_b, npop)
+  hap_b.close()
 
 if __name__ == '__main__':
   #load parameters and files
@@ -121,7 +133,7 @@ if __name__ == '__main__':
   if args.ind is None:
     raise Exception('individual not set')
   current_ind = args.ind
-  
+
   #reading order of individuals
   ind_list = []
   for line in ind_info:
@@ -131,13 +143,14 @@ if __name__ == '__main__':
     ind_index = ind_list.index(current_ind)
   except ValueError:
     raise Exception('Individual is not in the list provided')
-  
+
   #set up chromosome variables
-  chrs = range(1,23)
+  #chrs = range(1,23)
+  chrs = range(22,23)
   if args.chrX:
     chrs.append('X')
-  
+
   print 'Starting [' + datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + ']'
   main(current_ind, ind_index, pop_labels)
-          
+
   print 'Finished [' + datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + ']'
